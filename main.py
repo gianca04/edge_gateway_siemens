@@ -208,7 +208,7 @@ def main():
                     if info['type'] == 'REAL':
                         valor = get_real(data, 0)
                     else:
-                        valor = 1 if get_bool(data, 0, info['bit']) else 0
+                        valor = 1.0 if get_bool(data, 0, info['bit']) else 0.0
                         
                         # Edge detection: generar evento solo en cambio de estado
                         prev = prev_motor_state.get(info['equipo'])
