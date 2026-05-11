@@ -181,6 +181,13 @@ def main():
     
     logging.info("Sistema listo. Iniciando publicación con MQTT.")
     
+    # Estado previo de señales digitales para detección de cambio de estado (edge detection)
+    # None = estado desconocido (primera lectura, no genera evento)
+    prev_motor_state = {}
+    for info in tags_info:
+        if info['type'] == 'BOOL':
+            prev_motor_state[info['equipo']] = None
+    
     while running:
         try:
             if not plc.get_connected():
@@ -202,6 +209,15 @@ def main():
                         valor = get_real(data, 0)
                     else:
                         valor = 1 if get_bool(data, 0, info['bit']) else 0
+                        
+                        # Edge detection: generar evento solo en cambio de estado
+                        prev = prev_motor_state.get(info['equipo'])
+                        if prev is not None and prev != valor:
+                            event_topic = f"{MQTT_TOPIC_PREFIX}/{info['equipo']}/run"
+                            batch.append((event_topic, info['equipo'], valor, ts_ms))
+                            state_str = "ON" if valor == 1 else "OFF"
+                            logger.info(f"⚡ EVENTO: {info['equipo']} → {state_str}")
+                        prev_motor_state[info['equipo']] = valor
                     
                     batch.append((info['topic'], info['equipo'], valor, ts_ms))
             
