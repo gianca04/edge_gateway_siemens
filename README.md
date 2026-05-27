@@ -1,70 +1,83 @@
-# Edge Gateway IIoT para PLC Siemens
+# Edge Gateway - Siemens PLC a MQTT (Sparkplug B)
 
-Este repositorio contiene un servicio Edge Gateway desarrollado en Python para la captura de datos desde PLCs Siemens y su transmisión a un broker MQTT utilizando el estándar Sparkplug B. Está diseñado para operar de forma continua, resiliente y eficiente como un daemon del sistema (systemd) en entornos Linux (como contenedores LXC en Debian).
+Este proyecto implementa un Edge Gateway en Python para realizar la captura de datos desde un PLC Siemens y publicarlos de forma asíncrona hacia un broker MQTT siguiendo el estándar Sparkplug B o similar.
 
-## Arquitectura y Componentes
-
-- **Lectura Optimizada (Snap7):** Utiliza lecturas multi-variable (`read_multi_vars`) para agrupar las peticiones en un solo ciclo de red hacia el PLC, minimizando la latencia.
-- **Procesamiento de Excepciones (Report by Exception - RBE):** Filtra transmisiones utilizando bandas muertas (deadbands) para valores analógicos (`REAL`) y cambios de estado (flancos) para valores digitales (`BOOL`).
-- **Publicación Asíncrona (MQTT / Sparkplug B):** Cuenta con un hilo (worker) dedicado y una cola de mensajes para evitar que la latencia de red hacia el broker bloquee los ciclos de escaneo del PLC.
-- **Tolerancia a Fallos (Crash-Only):** El bucle principal delega el control de errores persistentes (ej. pérdida prolongada de conexión, fallos de hardware) al gestor del sistema operativo (systemd) abortando el proceso, garantizando así reinicios en un estado limpio (sin fugas de sockets o memoria).
+## Estructura del proyecto
+- `main.py`: Punto de entrada de la aplicación.
+- `config.py`: Gestor de la configuración y variables de entorno usando `dotenv`.
+- `plc_client.py`: Maneja la comunicación y lectura de variables del PLC.
+- `mqtt_publisher.py`: Administra la conexión, publicación y colas de mensajes MQTT.
+- `gateway.py`: Orquesta la interacción entre el cliente PLC y el publicador MQTT.
+- `tags_plc.json`: Diccionario configurable con los tags/marcas a leer en el PLC.
+- `utils/`: Contiene archivos de configuración recomendados para despliegue en Linux (ej. servicio systemd, bashrc, motd).
 
 ## Requisitos Previos
+* **Python 3.8+**
+* Acceso a un broker MQTT (por ejemplo, Mosquitto, EMQX).
+* Conectividad IP estándar hacia el PLC y el broker MQTT.
 
-- Python 3.8 o superior.
-- Entorno virtual (venv) configurado.
-- Broker MQTT compatible con Sparkplug B.
-- PLC Siemens (S7-1200, S7-1500, S7-300) con el acceso PUT/GET habilitado y los bloques de datos (DB) configurados sin acceso optimizado.
+## Configuración y Despliegue Manual (Desarrollo)
 
-## Configuración del Sistema
+1. **Clonar/Copiar el repositorio:**
+   Ubicar el código fuente, usualmente en `/root/captura_datos/` si es en el Edge container.
 
-### 1. Variables de Entorno (.env)
-Copiar el archivo `.env example` a `.env` en la raíz del proyecto y definir los parámetros:
-- `PLC_IP`, `PLC_RACK`, `PLC_SLOT`: Parámetros de red de red del PLC objetivo.
-- `MQTT_BROKER`, `MQTT_PORT`, `MQTT_USER`, `MQTT_PASSWORD`: Credenciales del servidor MQTT.
-- `SPARKPLUG_GROUP_ID`, `SPARKPLUG_NODE_ID`: Identificadores taxonómicos para la estructura Sparkplug B.
-- `RETRY_DELAY`, `SENSOR_READ_INTERVAL`: Temporizaciones principales y de reintento.
+2. **Crear e inicializar un entorno virtual:**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
 
-### 2. Diccionario de Datos (tags_plc.json)
-Define las variables (marcas) a leer en la memoria del PLC. La estructura JSON agrupa las variables por equipo.
+3. **Instalar las dependencias:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-Formato del array de configuración por variable:
-`[DB, ByteOffset, BitOffset, "Tipo", FrecuenciaSanidad, BandaMuerta]`
+4. **Configurar Variables de Entorno (.env):**
+   Crea un archivo `.env` en el directorio raíz basándote en que `config.py` espera variables como:
+   ```ini
+   PLC_IP=192.168.0.1
+   PLC_RACK=0
+   PLC_SLOT=3
+   RETRY_DELAY=10
+   SENSOR_READ_INTERVAL=2.0
+   MQTT_BROKER=localhost
+   MQTT_PORT=1883
+   MQTT_USER=tu_usuario
+   MQTT_PASSWORD=tu_password
+   SPARKPLUG_GROUP_ID=GianCa04_IIoT
+   SPARKPLUG_NODE_ID=PLC_Gateway_01
+   ```
 
-- **DB:** Número de Data Block del PLC.
-- **ByteOffset / BitOffset:** Ubicación del dato en la memoria.
-- **Tipo:** `REAL` o `BOOL`.
-- **FrecuenciaSanidad:** Período máximo en segundos antes de forzar la publicación del valor actual hacia el broker, aunque este no haya cambiado.
-- **BandaMuerta:** (Solo `REAL`) Variación flotante mínima requerida entre el valor anterior y el actual para gatillar un evento de actualización.
+5. **Configurar los Tags de PLC:**
+   Asegúrate de definir adecuadamente los registros en el archivo `tags_plc.json`.
 
-## Despliegue como Servicio (systemd)
+6. **Ejecutar el script:**
+   ```bash
+   python main.py
+   ```
 
-El servicio debe ser ejecutado mediante `systemd` para asegurar su persistencia. Se debe crear un archivo de unidad estandarizado en `/etc/systemd/system/plc-mqtt.service`:
+## Despliegue con Systemd (Producción en Linux/LXC Debian)
 
-```ini
-[Unit]
-Description=Servicio de Edge Gateway Siemens
-Wants=network-online.target
-After=network-online.target
-StartLimitBurst=5
-StartLimitIntervalSec=30
+En entornos de producción, se recomienda ejecutar el script como un servicio daemon para su gestión, arranque automático y control de errores:
 
-[Service]
-ExecStart=/root/captura_datos/venv/bin/python3 /root/captura_datos/main.py
-WorkingDirectory=/root/captura_datos
-Restart=on-failure
-RestartSec=5
-User=root
-StandardOutput=append:/var/log/edge.log
-StandardError=append:/var/log/edge.log
+1. Modifica la extensión (si aplica) y copia el esquema proveído en `utils/etc_systemd_system_edge.TOML` hacia la carpeta de servicios:
+   ```bash
+   cp utils/etc_systemd_system_edge.TOML /etc/systemd/system/edge-gateway.service
+   ```
 
-[Install]
-WantedBy=multi-user.target
-```
+2. Aplicar los permisos si corresponde y recargar el daemon:
+   ```bash
+   systemctl daemon-reload
+   ```
 
-### Comandos de gestión
+3. Activar e iniciar el servicio:
+   ```bash
+   systemctl enable edge-gateway.service
+   systemctl start edge-gateway.service
+   ```
 
-- **Recargar unidad:** `sudo systemctl daemon-reload`
-- **Habilitar en el arranque e iniciar:** `sudo systemctl enable --now plc-mqtt.service`
-- **Revisar estado:** `sudo systemctl status plc-mqtt.service`
-- **Seguimiento de logs:** `sudo journalctl -u plc-mqtt.service -f`
+4. **Solucionar Problemas:**
+   Puedes monitorear el flujo de datos y comprobar reinicios por estado fallido con:
+   ```bash
+   journalctl -u edge-gateway.service -f
+   ```
