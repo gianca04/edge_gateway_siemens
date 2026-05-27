@@ -30,13 +30,17 @@ class IIoTGateway:
         """Inicia el gateway y arranca el bucle de captura y transmisión."""
         logger.info("Iniciando componentes del Edge Gateway IIoT...")
         
-        # 1. Conectar al PLC de manera bloqueante/robusta
-        self.plc_client.connect()
+        self.running = True
+        
+        # 1. Conectar al PLC de manera bloqueante/robusta, pero respetando señal de apagado
+        if not self.plc_client.connect(lambda: self.running):
+            logger.info("Arranque cancelado o interrumpido. Cerrando...")
+            self._cleanup()
+            return
         
         # 2. Arrancar el publicador asíncrono de MQTT
         self.mqtt_publisher.start()
         
-        self.running = True
         logger.info("Sistema listo. Iniciando bucle de captura de telemetría.")
         
         # 3. Iniciar bucle principal de telemetría
@@ -53,7 +57,8 @@ class IIoTGateway:
                 # Verificar conectividad con el PLC antes de leer
                 if not self.plc_client.is_connected():
                     logger.warning("PLC Desconectado. Reintentando conexión...")
-                    self.plc_client.connect()
+                    if not self.plc_client.connect(lambda: self.running):
+                        continue # Si retorna False, puede ser que se dio señal de apagado
                 
                 # Lectura multi-variable optimizada (un solo viaje de red)
                 readings = self.plc_client.read_all_vars()

@@ -60,10 +60,10 @@ class PLCClient:
             self.data_items[i].Amount = ctypes.c_int32(info['amount'])
             self.data_items[i].pData = ctypes.cast(ctypes.pointer(info['buffer']), POINTER(c_ubyte))
 
-    def connect(self) -> bool:
+    def connect(self, is_running_func=None) -> bool:
         """Establece una conexión robusta con reintentos detallados al PLC."""
         attempt = 1
-        while True:
+        while is_running_func is None or is_running_func():
             try:
                 logger.info(
                     f"Intentando conexion al PLC {self.config.plc_ip} "
@@ -81,8 +81,15 @@ class PLCClient:
                 except Exception:
                     pass
             
+            # Chequear si nos pidieron apagar mientras dormimos
+            for _ in range(self.config.retry_delay):
+                if is_running_func is not None and not is_running_func():
+                    return False
+                time.sleep(1)
+            
             attempt += 1
-            time.sleep(self.config.retry_delay)
+            
+        return False
 
     def is_connected(self) -> bool:
         """Verifica si la conexión actual del PLC sigue activa."""
