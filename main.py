@@ -11,7 +11,7 @@ def main():
         gateway = IIoTGateway(config)
         gateway.start()
     except Exception as e:
-        logger.critical(f"Fallo crítico al iniciar el Edge Gateway IIoT: {e}", exc_info=True)
+        logger.critical(f"Fallo critico en inicio: {e}", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":

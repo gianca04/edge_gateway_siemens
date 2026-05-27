@@ -21,7 +21,7 @@ class MQTTPublisher:
 
     def _initialize_sparkplug_entities(self):
         """Inicializa dinámicamente el cliente Sparkplug B, el Edge Node y los Dispositivos."""
-        logger.info("Inicializando entidades Sparkplug B...")
+        logger.info("Inicializando Sparkplug B...")
         
         # 1. Crear cliente MQTT subyacente
         self.client = psp.Client(
@@ -59,7 +59,7 @@ class MQTTPublisher:
             # Crear y registrar el Device
             device = psp.Device(device_id=equipo, metrics=device_metrics)
             self.edge_node.register(device)
-            logger.info(f"Dispositivo registrado: '{equipo}' con metricas {[m.name for m in device_metrics]}")
+            logger.info(f"Registrado: {equipo}")
 
     def start(self):
         """Inicia el worker y gestiona la conexión asíncrona."""
@@ -69,7 +69,7 @@ class MQTTPublisher:
 
     def _mqtt_worker(self):
         """Hilo consumidor: Se conecta al broker de forma asíncrona y despacha la cola de datos."""
-        logger.info(f"Iniciando Worker MQTT Sparkplug B -> {self.config.mqtt_broker}:{self.config.mqtt_port}")
+        logger.info(f"Iniciando Worker MQTT -> {self.config.mqtt_broker}:{self.config.mqtt_port}")
         
         # Intentar conectar con reintentos
         while self.running:
@@ -79,17 +79,17 @@ class MQTTPublisher:
                 self.edge_node.connect(self.config.mqtt_broker, port=self.config.mqtt_port, blocking=False)
                 break
             except Exception as e:
-                logger.error(f"Error al conectar con el Broker MQTT: {e}")
+                logger.error(f"Error conexion MQTT: {e}")
                 time.sleep(self.config.retry_delay)
 
         # Esperar hasta que el Edge Node Sparkplug B esté completamente operativo
         # (NBIRTH + DBIRTH publicados exitosamente, no solo conexión TCP)
-        logger.info("Esperando confirmacion de conexion con el Broker MQTT...")
+        logger.info("Esperando conexion MQTT...")
         while self.running and not self.edge_node._connected:
             time.sleep(0.1)
             
         if self.running:
-            logger.info("Conexion establecida exitosamente con el Broker MQTT.")
+            logger.info("Conexion MQTT establecida.")
             # Breve pausa para asegurar que los mensajes BIRTH sean procesados por el broker
             time.sleep(0.5)
 
@@ -116,29 +116,29 @@ class MQTTPublisher:
             except queue.Empty:
                 continue
             except Exception as e:
-                logger.error(f"Error en la publicacion Sparkplug B: {e}")
+                logger.error(f"Error en publicacion MQTT: {e}")
 
         # Desconexión segura y limpia
-        logger.info("Deteniendo Worker MQTT Sparkplug B de forma limpia...")
+        logger.info("Deteniendo Worker MQTT...")
         if self.edge_node:
             try:
                 # publicará NDEATH y desconectará
                 self.edge_node.disconnect()
-                logger.info("Edge Node Sparkplug B desconectado.")
+                logger.info("Nodo Sparkplug desconectado.")
             except Exception as e:
                 logger.error(f"Error al desconectar Edge Node: {e}")
 
     def enqueue_device_update(self, equipo: str, metrics: list) -> bool:
         """Encola la actualización de métricas de un dispositivo para transmisión asíncrona."""
         if not self.running:
-            logger.warning("El publicador MQTT no está corriendo. Descartando datos.")
+            logger.warning("Publicador MQTT detenido. Descartando datos.")
             return False
             
         try:
             self.metrics_queue.put_nowait((equipo, metrics))
             return True
         except queue.Full:
-            logger.warning("Cola MQTT llena. Descartando actualización temporal para priorizar latencia de escaneo.")
+            logger.warning("Cola MQTT llena. Descartando datos.")
             return False
 
     def stop(self):

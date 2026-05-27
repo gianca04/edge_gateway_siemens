@@ -23,25 +23,25 @@ class IIoTGateway:
 
     def _signal_handler(self, sig, frame):
         """Captura interrupciones de sistema para apagar el gateway ordenadamente."""
-        logger.info("Señal de interrupción recibida. Apagando gateway...")
+        logger.info("Interrupcion recibida. Apagando...")
         self.stop()
 
     def start(self):
         """Inicia el gateway y arranca el bucle de captura y transmisión."""
-        logger.info("Iniciando componentes del Edge Gateway IIoT...")
+        logger.info("Iniciando componentes...")
         
         self.running = True
         
         # 1. Conectar al PLC de manera bloqueante/robusta, pero respetando señal de apagado
         if not self.plc_client.connect(lambda: self.running):
-            logger.info("Arranque cancelado o interrumpido. Cerrando...")
+            logger.info("Arranque cancelado. Cerrando...")
             self._cleanup()
             return
         
         # 2. Arrancar el publicador asíncrono de MQTT
         self.mqtt_publisher.start()
         
-        logger.info("Sistema listo. Iniciando bucle de captura de telemetría.")
+        logger.info("Sistema listo. Iniciando captura.")
         
         # 3. Iniciar bucle principal de telemetría
         self._run_loop()
@@ -127,9 +127,9 @@ class IIoTGateway:
                 
             except Exception as e:
                 consecutive_errors += 1
-                logger.error(f"Error en bucle de captura de datos (Intento {consecutive_errors}/{max_errors}): {e}")
+                logger.error(f"Error en bucle (Intento {consecutive_errors}/{max_errors}): {e}")
                 if consecutive_errors >= max_errors:
-                    logger.critical("Se alcanzó el límite de errores consecutivos. Abortando bucle para delegar la recuperación a systemd...")
+                    logger.critical("Limite de errores. Abortando...")
                     raise RuntimeError("Abordaje de ejecución tras fallos persistentes.")
                 time.sleep(self.config.retry_delay)
 
@@ -141,7 +141,7 @@ class IIoTGateway:
 
     def _cleanup(self):
         """Libera de manera segura los recursos de red y comunicaciones."""
-        logger.info("Cerrando recursos y conexiones...")
+        logger.info("Cerrando recursos...")
         self.mqtt_publisher.stop()
         self.plc_client.disconnect()
-        logger.info("Gateway IIoT apagado de manera segura e íntegra.")
+        logger.info("Script detenido.")

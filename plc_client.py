@@ -65,17 +65,14 @@ class PLCClient:
         attempt = 1
         while is_running_func is None or is_running_func():
             try:
-                logger.info(
-                    f"Intentando conexion al PLC {self.config.plc_ip} "
-                    f"(Rack {self.config.plc_rack}, Slot {self.config.plc_slot}) - Intento {attempt}"
-                )
+                logger.info(f"Conectando PLC {self.config.plc_ip} - Intento {attempt}")
                 self.plc.connect(self.config.plc_ip, self.config.plc_rack, self.config.plc_slot)
                 if self.plc.get_connected():
-                    logger.info("PLC Conectado exitosamente")
+                    logger.info("PLC conectado.")
                     return True
             except Exception as e:
                 err_msg = str(e).encode('ascii', 'ignore').decode('ascii')
-                logger.error(f"X Fallo en conexion PLC: {err_msg}")
+                logger.error(f"Fallo conexion PLC: {err_msg}")
                 try:
                     self.plc.disconnect()
                 except Exception:
@@ -116,7 +113,7 @@ class PLCClient:
                 readings.append((info, valor))
             else:
                 info = self.tags_info[i]
-                logger.warning(f"No se pudo leer variable {info['equipo']}.{info['var_name']} - Result: {item.Result}")
+                logger.warning(f"Fallo lectura {info['equipo']}.{info['var_name']} (Res: {item.Result})")
                 
         return readings
 
@@ -124,4 +121,4 @@ class PLCClient:
         """Cierra la conexión de forma segura con el PLC."""
         if self.is_connected():
             self.plc.disconnect()
-            logger.info("PLC Desconectado de forma segura.")
+            logger.info("PLC desconectado.")
