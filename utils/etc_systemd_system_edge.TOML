@@ -1,0 +1,26 @@
+[Unit]
+Description=Servicio de Edge Gateway Siemens
+# Se asegura de que la red esté realmente operativa antes de arrancar
+Wants=network-online.target
+After=network-online.target
+# Límites para evitar que entre en un bucle infinito si hay un error persistente
+StartLimitBurst=5
+StartLimitIntervalSec=30
+
+[Service]
+# Ruta al ejecutable de Python dentro de tu entorno virtual en el LXC
+ExecStart=/root/captura_datos/venv/bin/python3 /root/captura_datos/main.py
+WorkingDirectory=/root/captura_datos
+
+# on-failure ayuda enviando la señal de reinicio sólo si el código de salida es != 0
+Restart=on-failure
+RestartSec=5
+
+User=root
+
+# Loguear las salidas a archivo (systemd/journald también las capturará, pero tenerlas aquí es opcional)
+StandardOutput=append:/var/log/edge.log
+StandardError=append:/var/log/edge.log
+
+[Install]
+WantedBy=multi-user.target

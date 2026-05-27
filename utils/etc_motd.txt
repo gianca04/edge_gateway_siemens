@@ -1,0 +1,21 @@
+
+  ███████╗  █████╗  ████████╗
+  ██╔════╝ ██╔══██╗ ╚══██╔══╝
+  ███████╗ ███████║    ██║   
+  ╚════██║ ██╔══██║    ██║   
+  ███████║ ██║  ██║    ██║   
+  ╚══════╝ ╚═╝  ╚═╝    ╚═╝   
+
+ === SAT Industriales - Edge Gateway Siemens ===
+ Captura de Datos y publicación.
+
+ COMANDOS DE CONTROL:
+ -----------------------------------------------------------
+  plc-status   : Verifica si el servicio está activo.
+  plc-log      : Muestra flujo de datos y errores (RT).
+  plc-restart  : Reinicia el script (aplica cambios .env).
+  plc-stop     : Detiene la captura por completo.
+ -----------------------------------------------------------
+  IP 01 - 192.168.10.60
+  IP 02 - 192.168.0.60
+ -----------------------------------------------------------

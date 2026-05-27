@@ -45,6 +45,9 @@ class IIoTGateway:
     def _run_loop(self):
         """Bucle continuo de lectura de variables y publicación."""
         
+        consecutive_errors = 0
+        max_errors = 5
+        
         while self.running:
             try:
                 # Verificar conectividad con el PLC antes de leer
@@ -115,9 +118,14 @@ class IIoTGateway:
                 
                 # Tick rápido (0.1s) en lugar del viejo intervalo, para reaccionar rápido a las frecuencias
                 time.sleep(0.1)
+                consecutive_errors = 0  # Restablecemos errores al tener un ciclo exitoso
                 
             except Exception as e:
-                logger.error(f"Error en bucle de captura de datos: {e}")
+                consecutive_errors += 1
+                logger.error(f"Error en bucle de captura de datos (Intento {consecutive_errors}/{max_errors}): {e}")
+                if consecutive_errors >= max_errors:
+                    logger.critical("Se alcanzó el límite de errores consecutivos. Abortando bucle para delegar la recuperación a systemd...")
+                    raise RuntimeError("Abordaje de ejecución tras fallos persistentes.")
                 time.sleep(self.config.retry_delay)
 
         self._cleanup()

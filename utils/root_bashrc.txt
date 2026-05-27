@@ -1,0 +1,6 @@
+# --- ALIAS DE CONTROL SAT INDUSTRIALES ---
+alias plc-status='systemctl status plc-mqtt.service'
+alias plc-start='systemctl start plc-mqtt.service'
+alias plc-stop='systemctl stop plc-mqtt.service'
+alias plc-restart='systemctl restart plc-mqtt.service'
+alias plc-log='journalctl -u plc-mqtt.service -f'
