@@ -15,6 +15,15 @@
     "Temp": [77, 424, 0, "REAL", 60.0, 1.0]
   },
   "MOTOR_01": {
-    "Running": [97, 446, 0, "BOOL", 10.0, 0.0]
+    "Running": [97, 446, 0, "BOOL", 10.0, 0.0, {
+      "events": [
+        {
+          "name": "Motor_Status_Change",
+          "type": "change",
+          "tag_equipo": "MOTOR_01",
+          "tag_name": "Event_OnOff"
+        }
+      ]
+    }]
   }
 }

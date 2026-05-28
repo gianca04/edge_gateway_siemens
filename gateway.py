@@ -5,6 +5,7 @@ import pysparkplug as psp
 from config import AppConfig
 from plc_client import PLCClient
 from mqtt_publisher import MQTTPublisher
+from event_detector import EventDetector
 
 logger = logging.getLogger("PLC-MQTT.IIoTGateway")
 
@@ -15,6 +16,7 @@ class IIoTGateway:
         self.config = config
         self.plc_client = PLCClient(config)
         self.mqtt_publisher = MQTTPublisher(config)
+        self.event_detector = EventDetector(config.MARCAS)
         self.running = False
         
         # Registrar señales de apagado seguro
@@ -76,11 +78,9 @@ class IIoTGateway:
                     should_publish = False
                     
                     if dtype == 'BOOL':
-                        # Detección de flanco (cambio de estado)
+                        # Detección de flanco delegada al EventDetector
                         if last_val is not None and last_val != valor:
-                            should_publish = True  # Prioridad al evento
-                            state_str = "ON" if valor == 1.0 else "OFF"
-                            logger.info(f"⚡ EVENTO: {equipo} → {state_str}")
+                            should_publish = True
                     elif dtype == 'REAL':
                         # Detección por Banda Muerta (Deadband)
                         if last_val is None or abs(last_val - valor) >= info['deadband']:
@@ -90,11 +90,22 @@ class IIoTGateway:
                     if not should_publish and (current_time - info['last_publish']) >= info['freq']:
                         should_publish = True
                     
+                    # ── Evaluar eventos genéricos ──
+                    events = self.event_detector.evaluate(equipo, var_name, valor)
+                    for ev in events:
+                        logger.info(ev.message)
+                        ev_metric = psp.Metric(
+                            timestamp=ts_ms,
+                            name=ev.tag_name,
+                            datatype=psp.DataType.INT32,
+                            value=int(ev.value)
+                        )
+                        if ev.tag_equipo not in updates_by_equipo:
+                            updates_by_equipo[ev.tag_equipo] = []
+                        updates_by_equipo[ev.tag_equipo].append(ev_metric)
+                    
                     if not should_publish:
                         continue
-                        
-                    # Impresión temporal para debug de los valores a enviar
-                    #logger.info(f" DEBUG: Publicando {equipo}/{var_name} = {valor}")
                         
                     # Actualizar memoria interna (estado y tiempo)
                     info['last_value'] = valor

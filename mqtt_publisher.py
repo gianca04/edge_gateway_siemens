@@ -3,6 +3,7 @@ import logging
 import queue
 import threading
 import pysparkplug as psp
+from event_detector import EventDetector
 
 logger = logging.getLogger("PLC-MQTT.MQTTPublisher")
 
@@ -16,6 +17,7 @@ class MQTTPublisher:
         self.client = None
         self.edge_node = None
         self.worker_thread = None
+        self.event_detector = EventDetector(config.MARCAS)
         
         self._initialize_sparkplug_entities()
 
@@ -55,6 +57,17 @@ class MQTTPublisher:
                     value=default_val
                 )
                 device_metrics.append(metric)
+            
+            # Crear métricas de evento virtuales vinculadas a este equipo
+            for ev_tag in self.event_detector.get_event_tags():
+                if ev_tag["tag_equipo"] == equipo:
+                    ev_metric = psp.Metric(
+                        timestamp=int(time.time() * 1000),
+                        name=ev_tag["tag_name"],
+                        datatype=psp.DataType.INT32,
+                        value=0
+                    )
+                    device_metrics.append(ev_metric)
             
             # Crear y registrar el Device
             device = psp.Device(device_id=equipo, metrics=device_metrics)
