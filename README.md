@@ -19,7 +19,7 @@ Este proyecto implementa un Edge Gateway en Python para realizar la captura de d
 ## Configuración y Despliegue Manual (Desarrollo)
 
 1. **Clonar/Copiar el repositorio:**
-   Ubicar el código fuente, usualmente en `/root/captura_datos/` si es en el Edge container.
+   Ubicar el código fuente, usualmente en `/root/edge_siemens/` si es en el Edge container.
 
 2. **Crear e inicializar un entorno virtual:**
    ```bash

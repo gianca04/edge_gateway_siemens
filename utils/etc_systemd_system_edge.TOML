@@ -9,8 +9,8 @@ StartLimitIntervalSec=30
 
 [Service]
 # Ruta al ejecutable de Python dentro de tu entorno virtual en el LXC
-ExecStart=/root/captura_datos/venv/bin/python3 /root/captura_datos/main.py
-WorkingDirectory=/root/captura_datos
+ExecStart=/root/edge_siemens/venv/bin/python3 /root/edge_siemens/main.py
+WorkingDirectory=/root/edge_siemens
 
 # on-failure ayuda enviando la señal de reinicio sólo si el código de salida es != 0
 Restart=on-failure
