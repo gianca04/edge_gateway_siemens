@@ -2,6 +2,8 @@
 
 Este proyecto implementa un Edge Gateway en Python para realizar la captura de datos desde un PLC Siemens y publicarlos de forma asíncrona hacia un broker MQTT siguiendo el estándar Sparkplug B o similar.
 
+![alt text](<LABORATORIO_SAT.jpeg>)
+
 ## Estructura del proyecto
 - `main.py`: Punto de entrada de la aplicación.
 - `config.py`: Gestor de la configuración y variables de entorno usando `dotenv`.
@@ -81,3 +83,4 @@ En entornos de producción, se recomienda ejecutar el script como un servicio da
    ```bash
    journalctl -u edge-gateway.service -f
    ```
+
