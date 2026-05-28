@@ -18,10 +18,14 @@
     "Running": [97, 446, 0, "BOOL", 10.0, 0.0, {
       "events": [
         {
-          "name": "Motor_Status_Change",
-          "type": "change",
-          "tag_equipo": "MOTOR_01",
-          "tag_name": "Event_OnOff"
+          "name": "Motor_Encendido",
+          "type": "rising_edge",
+          "tag_name": "MOTOR_01_ON"
+        },
+        {
+          "name": "Motor_Apagado",
+          "type": "falling_edge",
+          "tag_name": "MOTOR_01_OFF"
         }
       ]
     }]

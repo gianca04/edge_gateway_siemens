@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger("PLC-MQTT.EventDetector")
@@ -11,45 +11,42 @@ logger = logging.getLogger("PLC-MQTT.EventDetector")
 
 @dataclass
 class EventRule:
-    """Regla declarativa de un evento, parseada desde tags_plc.json."""
-    name: str               # Nombre descriptivo (ej. "Motor_Status_Change")
+    """Regla declarativa de un evento de flanco, parseada desde tags_plc.json."""
+    name: str               # Nombre descriptivo (ej. "Motor_Encendido")
     source_key: str          # Clave compuesta "equipo/var_name" de la variable fuente
-    event_type: str          # "change" | "threshold_above" | "threshold_below"
-    tag_equipo: str          # Equipo destino donde se publica el tag de evento
-    tag_name: str            # Nombre del tag virtual de evento
-    threshold: Optional[float] = None  # Umbral (solo para threshold_above/below)
+    event_type: str          # "rising_edge" | "falling_edge"
+    tag_equipo: str          # Equipo destino (heredado del padre en el JSON)
+    tag_name: str            # Nombre del tag de evento (ej. "MOTOR_01_ON")
 
 
 @dataclass
 class EventResult:
-    """Resultado emitido cuando un evento se dispara."""
+    """Resultado emitido cuando un evento de flanco se dispara."""
     tag_equipo: str
     tag_name: str
-    value: float             # Valor emitido (0/1 para change y threshold, o valor real)
+    value: int               # Siempre 1 (pulso/marca)
     message: str             # Mensaje legible para log
 
 
 # ──────────────────────────────────────────────
-#  Motor de Detección de Eventos
+#  Motor de Detección de Eventos por Flanco
 # ──────────────────────────────────────────────
 
 class EventDetector:
     """
-    Motor genérico de detección de eventos.
+    Detector de eventos por flanco (rising/falling edge).
     
-    Parsea las reglas de evento definidas en el JSON de tags,
-    mantiene el estado previo de cada variable fuente, y evalúa
-    si un evento debe dispararse en cada ciclo de lectura.
+    Solo emite pulsos (value=1) en transiciones de estado:
+    - rising_edge:  dispara cuando el valor pasa de 0→1 (o estado inicial = 1)
+    - falling_edge: dispara cuando el valor pasa de 1→0 (o estado inicial = 0)
     
-    Para registrar un nuevo evento, solo se necesita añadir
-    la configuración en tags_plc.json — sin modificar código.
+    Para registrar nuevos eventos, solo se añade la configuración
+    en tags_plc.json — sin modificar código.
     """
 
     def __init__(self, marcas: dict):
         self._rules: list[EventRule] = []
         self._previous_values: dict[str, Optional[float]] = {}
-        # Para threshold: estado previo de cruce (True = activo, False = inactivo)
-        self._threshold_states: dict[str, bool] = {}
         
         self._parse_rules(marcas)
 
@@ -68,20 +65,21 @@ class EventDetector:
                 source_key = f"{equipo}/{var_name}"
 
                 for ev in event_config["events"]:
+                    event_type = ev["type"]
+                    if event_type not in ("rising_edge", "falling_edge"):
+                        logger.warning(f"Tipo de evento desconocido: {event_type}")
+                        continue
+
                     rule = EventRule(
                         name=ev["name"],
                         source_key=source_key,
-                        event_type=ev["type"],
-                        tag_equipo=ev.get("tag_equipo", equipo),
+                        event_type=event_type,
+                        tag_equipo=equipo,  # Heredado del padre
                         tag_name=ev["tag_name"],
-                        threshold=ev.get("threshold")
                     )
                     self._rules.append(rule)
                     # Inicializar estado previo en None (primera lectura)
                     self._previous_values[source_key] = None
-                    # Inicializar estado de umbral como inactivo
-                    if rule.event_type in ("threshold_above", "threshold_below"):
-                        self._threshold_states[rule.name] = False
 
                     logger.info(
                         f"Evento registrado: [{rule.event_type}] "
@@ -91,7 +89,7 @@ class EventDetector:
     def get_event_tags(self) -> list[dict]:
         """
         Retorna la lista de tags virtuales de evento para registrarlos en DBIRTH.
-        Cada dict tiene: tag_equipo, tag_name, dtype ('INT32').
+        Cada dict tiene: tag_equipo, tag_name.
         """
         tags = []
         seen = set()
@@ -108,11 +106,12 @@ class EventDetector:
     def evaluate(self, equipo: str, var_name: str, current_value: float) -> list[EventResult]:
         """
         Evalúa todas las reglas vinculadas a la variable fuente.
+        Solo retorna resultados cuando hay una transición de estado (pulso).
         
         Args:
             equipo: Identificador del equipo (ej. "MOTOR_01")
             var_name: Nombre de la variable (ej. "Running")
-            current_value: Valor actual leído del PLC
+            current_value: Valor actual leído del PLC (0.0 o 1.0)
             
         Returns:
             Lista de EventResult para cada evento disparado (puede estar vacía).
@@ -128,7 +127,7 @@ class EventDetector:
         previous = self._previous_values.get(source_key)
 
         for rule in applicable_rules:
-            result = self._evaluate_rule(rule, previous, current_value)
+            result = self._evaluate_edge(rule, previous, current_value)
             if result is not None:
                 results.append(result)
 
@@ -137,106 +136,51 @@ class EventDetector:
 
         return results
 
-    def _evaluate_rule(
+    def _evaluate_edge(
         self, rule: EventRule, previous: Optional[float], current: float
     ) -> Optional[EventResult]:
-        """Evalúa una regla individual y retorna un EventResult si se dispara."""
+        """
+        Evalúa un evento de flanco y retorna un pulso (value=1) si se dispara.
         
-        if rule.event_type == "change":
-            return self._eval_change(rule, previous, current)
-        elif rule.event_type == "threshold_above":
-            return self._eval_threshold_above(rule, previous, current)
-        elif rule.event_type == "threshold_below":
-            return self._eval_threshold_below(rule, previous, current)
-        else:
-            logger.warning(f"Tipo de evento desconocido: {rule.event_type}")
-            return None
-
-    # ── Evaluadores por tipo ──────────────────
-
-    def _eval_change(
-        self, rule: EventRule, previous: Optional[float], current: float
-    ) -> Optional[EventResult]:
-        """Dispara cuando el valor actual difiere del anterior, o en la primera lectura."""
-        # Primera lectura: publicar estado inicial
-        if previous is None:
-            if current in (0.0, 1.0):
-                state_str = "ON" if current == 1.0 else "OFF"
-                msg = f"⚡ EVENTO [{rule.name}]: Estado inicial → {state_str}"
-            else:
-                msg = f"⚡ EVENTO [{rule.name}]: Estado inicial → {current}"
-            return EventResult(
-                tag_equipo=rule.tag_equipo,
-                tag_name=rule.tag_name,
-                value=current,
-                message=msg
-            )
+        - rising_edge:  primera lectura con valor=1, o transición 0→1
+        - falling_edge: primera lectura con valor=0, o transición 1→0
+        """
+        is_on = current == 1.0
         
-        if previous != current:
-            # Para BOOL (0/1): mensaje descriptivo
-            if current in (0.0, 1.0) and previous in (0.0, 1.0):
-                from_str = "ON" if previous == 1.0 else "OFF"
-                to_str = "ON" if current == 1.0 else "OFF"
-                msg = f"⚡ EVENTO [{rule.name}]: {from_str} → {to_str}"
-            else:
-                msg = f"⚡ EVENTO [{rule.name}]: {previous} → {current}"
-            
-            return EventResult(
-                tag_equipo=rule.tag_equipo,
-                tag_name=rule.tag_name,
-                value=current,
-                message=msg
-            )
-        return None
+        if rule.event_type == "rising_edge":
+            # Primera lectura: disparar si el motor ya está encendido
+            if previous is None and is_on:
+                return EventResult(
+                    tag_equipo=rule.tag_equipo,
+                    tag_name=rule.tag_name,
+                    value=1,
+                    message=f"⚡ EVENTO [{rule.name}]: Estado inicial → ON"
+                )
+            # Transición 0→1
+            if previous == 0.0 and is_on:
+                return EventResult(
+                    tag_equipo=rule.tag_equipo,
+                    tag_name=rule.tag_name,
+                    value=1,
+                    message=f"⚡ EVENTO [{rule.name}]: OFF → ON"
+                )
 
-    def _eval_threshold_above(
-        self, rule: EventRule, previous: Optional[float], current: float
-    ) -> Optional[EventResult]:
-        """Dispara cuando el valor cruza el umbral hacia arriba (o regresa debajo)."""
-        if rule.threshold is None:
-            return None
-        
-        was_above = self._threshold_states.get(rule.name, False)
-        is_above = current >= rule.threshold
+        elif rule.event_type == "falling_edge":
+            # Primera lectura: disparar si el motor ya está apagado
+            if previous is None and not is_on:
+                return EventResult(
+                    tag_equipo=rule.tag_equipo,
+                    tag_name=rule.tag_name,
+                    value=1,
+                    message=f"⚡ EVENTO [{rule.name}]: Estado inicial → OFF"
+                )
+            # Transición 1→0
+            if previous == 1.0 and not is_on:
+                return EventResult(
+                    tag_equipo=rule.tag_equipo,
+                    tag_name=rule.tag_name,
+                    value=1,
+                    message=f"⚡ EVENTO [{rule.name}]: ON → OFF"
+                )
 
-        if is_above != was_above:
-            self._threshold_states[rule.name] = is_above
-            value = 1.0 if is_above else 0.0
-            direction = "SUPERADO" if is_above else "NORMALIZADO"
-            msg = (
-                f"⚡ EVENTO [{rule.name}]: Umbral {rule.threshold} "
-                f"{direction} (valor: {current})"
-            )
-            return EventResult(
-                tag_equipo=rule.tag_equipo,
-                tag_name=rule.tag_name,
-                value=value,
-                message=msg
-            )
-        return None
-
-    def _eval_threshold_below(
-        self, rule: EventRule, previous: Optional[float], current: float
-    ) -> Optional[EventResult]:
-        """Dispara cuando el valor cruza el umbral hacia abajo (o regresa arriba)."""
-        if rule.threshold is None:
-            return None
-        
-        was_below = self._threshold_states.get(rule.name, False)
-        is_below = current <= rule.threshold
-
-        if is_below != was_below:
-            self._threshold_states[rule.name] = is_below
-            value = 1.0 if is_below else 0.0
-            direction = "INFERIOR" if is_below else "NORMALIZADO"
-            msg = (
-                f"⚡ EVENTO [{rule.name}]: Umbral {rule.threshold} "
-                f"{direction} (valor: {current})"
-            )
-            return EventResult(
-                tag_equipo=rule.tag_equipo,
-                tag_name=rule.tag_name,
-                value=value,
-                message=msg
-            )
         return None
