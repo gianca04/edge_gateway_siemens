@@ -1,33 +1,76 @@
 {
   "FIT_001": {
-    "Flow": [65, 424, 0, "REAL", 15.0, 0.5]
+    "Flow": [
+      65,
+      424,
+      0,
+      "REAL",
+      15.0,
+      0.5
+    ]
   },
   "LIT_001": {
-    "Level": [99, 424, 0, "REAL", 30.0, 2.0]
+    "Level": [
+      99,
+      424,
+      0,
+      "REAL",
+      30.0,
+      2.0
+    ]
   },
   "LIT_002": {
-    "Level": [112, 424, 0, "REAL", 30.0, 2.0]
+    "Level": [
+      112,
+      424,
+      0,
+      "REAL",
+      30.0,
+      2.0
+    ]
   },
   "TT_001": {
-    "Temp": [101, 424, 0, "REAL", 60.0, 1.0]
+    "Temp": [
+      101,
+      424,
+      0,
+      "REAL",
+      60.0,
+      1.0
+    ]
   },
   "TT_002": {
-    "Temp": [77, 424, 0, "REAL", 60.0, 1.0]
+    "Temp": [
+      77,
+      424,
+      0,
+      "REAL",
+      60.0,
+      1.0
+    ]
   },
   "MOTOR_01": {
-    "Running": [97, 446, 0, "BOOL", 10.0, 0.0, {
-      "events": [
-        {
-          "name": "Motor_Encendido",
-          "type": "rising_edge",
-          "tag_name": "MOTOR_01_ON"
-        },
-        {
-          "name": "Motor_Apagado",
-          "type": "falling_edge",
-          "tag_name": "MOTOR_01_OFF"
-        }
-      ]
-    }]
+    "Running": [
+      97,
+      446,
+      0,
+      "BOOL",
+      10.0,
+      0.5,
+      {
+        "events": [
+          {
+            "name": "Motor_Encendido",
+            "type": "rising_edge",
+            "tag_name": "MOTOR_01_ON"
+          },
+          {
+            "name": "Motor_Apagado",
+            "type": "falling_edge",
+            "tag_name": "MOTOR_01_OFF"
+          }
+        ]
+      }
+    ]
   }
 }
