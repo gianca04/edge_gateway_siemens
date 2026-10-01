@@ -4,7 +4,6 @@ import logging
 from typing import Optional, List, Dict, Any
 import pysparkplug as psp
 from config import AppConfig
-from event_detector import EventDetector
 
 logger = logging.getLogger("PLC-MQTT.MQTTPublisher")
 
@@ -27,7 +26,6 @@ class MQTTPublisher:
         self.seq = 0
         self.connected = False
         self.running = False
-        self.event_detector = EventDetector(config.MARCAS)
         
         # Cliente MQTT Sparkplug B subyacente
         self.client = psp.Client(
@@ -179,17 +177,6 @@ class MQTTPublisher:
                     metadata=psp.Metadata(description=desc_full)
                 )
                 metrics_list.append(m)
-
-        # Añadir métricas virtuales de eventos por flanco (ej. MOTOR_01_ON, MOTOR_01_OFF)
-        for ev_tag in self.event_detector.get_event_tags():
-            ev_metric = psp.Metric(
-                timestamp=ts,
-                name=f"{ev_tag['tag_equipo']}/{ev_tag['tag_name']}",
-                datatype=psp.DataType.INT32,
-                value=0,
-                metadata=psp.Metadata(description=f"Evento Virtual: {ev_tag['tag_name']}")
-            )
-            metrics_list.append(ev_metric)
 
         topic = psp.Topic(
             message_type=psp.MessageType.DBIRTH,

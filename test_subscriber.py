@@ -83,8 +83,8 @@ def main():
         client.connect(config.mqtt_broker, config.mqtt_port, 60)
         client.loop_start()
         
-        print("\nEscuchando mensajes Sparkplug B durante 10 segundos...\n")
-        time.sleep(10)
+        print("\nEscuchando mensajes Sparkplug B durante 20 segundos...\n")
+        time.sleep(20)
         
     except KeyboardInterrupt:
         print("\nDeteniendo suscriptor de prueba...")

@@ -5,7 +5,6 @@ import pysparkplug as psp
 from config import AppConfig
 from plc_client import PLCClient
 from mqtt_publisher import MQTTPublisher
-from event_detector import EventDetector
 
 logger = logging.getLogger("PLC-MQTT.IIoTGateway")
 
@@ -26,7 +25,6 @@ class IIoTGateway:
         self.config = config
         self.plc_client = PLCClient(config)
         self.mqtt_publisher = MQTTPublisher(config)
-        self.event_detector = EventDetector(config.MARCAS)
         
         self.running = False
         self.plc_connected = False
@@ -116,18 +114,6 @@ class IIoTGateway:
                     # Evaluación por tiempo máximo de refresco (Sanity Check Period)
                     if not should_publish and (current_time - info['last_publish']) >= info['freq']:
                         should_publish = True
-
-                    # ── Evaluar eventos virtuales por flanco ──
-                    events = self.event_detector.evaluate(equipo, var_name, valor)
-                    for ev in events:
-                        logger.info(ev.message)
-                        ev_metric = psp.Metric(
-                            timestamp=ts_ms,
-                            name=f"{ev.tag_equipo}/{ev.tag_name}",
-                            datatype=psp.DataType.INT32,
-                            value=ev.value
-                        )
-                        metrics_to_publish.append(ev_metric)
 
                     if should_publish:
                         info['last_value'] = valor
