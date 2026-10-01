@@ -13,6 +13,32 @@ Este proyecto implementa un Edge Gateway en Python para realizar la captura de d
 - `tags_plc.json`: Diccionario configurable con los tags/marcas a leer en el PLC.
 - `utils/`: Contiene archivos de configuración recomendados para despliegue en Linux (ej. servicio systemd, bashrc, motd).
 
+## Convención de Tópicos Sparkplug B
+
+La estructura de los tópicos sigue estrictamente la especificación Sparkplug B:
+
+```text
+spBv1.0 / <group_id> / <message_type> / <edge_node_id> [ / <device_id> ]
+```
+
+### Elementos del Tópico:
+1. `spBv1.0`: Identificador de versión del estándar (Sparkplug B v1.0).
+2. `<group_id>` (`sat_lab`): Agrupación lógica de la planta o laboratorio.
+3. `<message_type>`: Tipo de mensaje (`NBIRTH`, `NDEATH`, `DBIRTH`, `DDEATH`, `DDATA`).
+4. `<edge_node_id>` (`gw_extraccion_112`): Identificador del Gateway o contenedor LXC.
+5. `<device_id>` (`plc_siemens_lab`): Identificador del autómata conectado.
+
+### Los 5 Tópicos del Sistema:
+
+| Nivel | Mensaje | Tópico Completo | Significado en Lenguaje Simple |
+|---|---|---|---|
+| **Nodo** | `NBIRTH` | `spBv1.0/sat_lab/NBIRTH/gw_extraccion_112` | **LXC Conectado:** *"Estoy vivo, mi IP es tal y reportaré 16 equipos"*. |
+| **Nodo** | `NDEATH` | `spBv1.0/sat_lab/NDEATH/gw_extraccion_112` | **LXC Caído (LWT):** *"El contenedor LXC perdió energía o se apagó"*. |
+| **Dispositivo** | `DBIRTH` | `spBv1.0/sat_lab/DBIRTH/gw_extraccion_112/plc_siemens_lab` | **PLC Conectado:** *"El PLC Siemens está en línea con su catálogo de 16 variables"*. |
+| **Dispositivo** | `DDATA` | `spBv1.0/sat_lab/DDATA/gw_extraccion_112/plc_siemens_lab` | **Telemetría:** *"Aquí van las lecturas en tiempo real de los sensores"*. |
+| **Dispositivo** | `DDEATH` | `spBv1.0/sat_lab/DDEATH/gw_extraccion_112/plc_siemens_lab` | **PLC Desconectado:** *"El LXC sigue vivo, pero se desconectó el cable del PLC"*. |
+
+
 ## Requisitos Previos
 * **Python 3.8+**
 * Acceso a un broker MQTT (por ejemplo, Mosquitto, EMQX).
@@ -46,8 +72,10 @@ Este proyecto implementa un Edge Gateway en Python para realizar la captura de d
    MQTT_PORT=1883
    MQTT_USER=tu_usuario
    MQTT_PASSWORD=tu_password
-   SPARKPLUG_GROUP_ID=GianCa04_IIoT
-   SPARKPLUG_NODE_ID=PLC_Gateway_01
+   SPARKPLUG_GROUP_ID=sat_lab
+   SPARKPLUG_NODE_ID=gw_extraccion_112
+   SPARKPLUG_DEVICE_ID=plc_siemens_lab
+   MQTT_KEEPALIVE=10
    ```
 
 5. **Configurar los Tags de PLC:**

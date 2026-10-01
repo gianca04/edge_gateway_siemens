@@ -9,152 +9,179 @@ from event_detector import EventDetector
 
 logger = logging.getLogger("PLC-MQTT.IIoTGateway")
 
+
 class IIoTGateway:
-    """Orquestador principal del Edge Gateway IIoT."""
+    """
+    Orquestador principal del Edge Gateway en entorno LXC.
     
+    Gestiona el ciclo de vida completo de Sparkplug B:
+    - NBIRTH: El Gateway LXC arranca y anuncia su presencia e IP.
+    - NDEATH: Configurado como LWT en el broker para caídas del LXC, y emitido en apagado ordenado.
+    - DBIRTH: Cuando se establece comunicación con el PLC Siemens, presenta el catálogo de 16 variables.
+    - DDEATH: Si se desconecta el cable Ethernet del PLC (mientras el LXC sigue vivo), avisa la pérdida de enlace.
+    - DDATA : Publicación de telemetría de las 16 variables por excepción (Deadband) o periódicamente.
+    """
+
     def __init__(self, config: AppConfig):
         self.config = config
         self.plc_client = PLCClient(config)
         self.mqtt_publisher = MQTTPublisher(config)
         self.event_detector = EventDetector(config.MARCAS)
-        self.running = False
         
-        # Registrar señales de apagado seguro
+        self.running = False
+        self.plc_connected = False
+        self.device_id = config.sparkplug_device_id
+
+        # Capturar señales POSIX (esencial para LXC y daemon systemd)
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
     def _signal_handler(self, sig, frame):
-        """Captura interrupciones de sistema para apagar el gateway ordenadamente."""
-        logger.info("Interrupcion recibida. Apagando...")
+        sig_name = "SIGINT (Ctrl+C)" if sig == signal.SIGINT else "SIGTERM (Apagado LXC / Systemd)"
+        logger.info(f"Senal recibida: {sig_name}. Iniciando apagado ordenado...")
         self.stop()
 
     def start(self):
-        """Inicia el gateway y arranca el bucle de captura y transmisión."""
-        logger.info("Iniciando componentes...")
-        
+        """Inicia el gateway, conecta con el Broker EMQX y entra al bucle de telemetría con el PLC."""
+        logger.info("Iniciando Edge Gateway Siemens Sparkplug B...")
         self.running = True
-        
-        # 1. Conectar al PLC de manera bloqueante/robusta, pero respetando señal de apagado
-        if not self.plc_client.connect(lambda: self.running):
-            logger.info("Arranque cancelado. Cerrando...")
-            self._cleanup()
-            return
-        
-        # 2. Arrancar el publicador asíncrono de MQTT
+
+        # 1. Arrancar publicador MQTT (registra NDEATH LWT, conecta a EMQX y emite NBIRTH)
         self.mqtt_publisher.start()
-        
-        logger.info("Sistema listo. Iniciando captura.")
-        
-        # 3. Iniciar bucle principal de telemetría
+
+        # 2. Iniciar bucle principal de adquisición y telemetría de dispositivos
         self._run_loop()
 
     def _run_loop(self):
-        """Bucle continuo de lectura de variables y publicación."""
-        
-        consecutive_errors = 0
-        max_errors = 5
-        
+        """Bucle continuo de supervisión de conexión con el PLC y despacho de DBIRTH, DDEATH y DDATA."""
+        logger.info(f"Iniciando ciclo de adquisicion de datos hacia PLC {self.config.plc_ip}...")
+
         while self.running:
             try:
-                # Verificar conectividad con el PLC antes de leer
+                # ── GESTIÓN DE ENLACE CON EL PLC SIEMENS ──
                 if not self.plc_client.is_connected():
-                    logger.warning("PLC Desconectado. Reintentando conexión...")
+                    # Si previamente estaba conectado y se perdió el enlace (ej: cable Ethernet desconectado)
+                    if self.plc_connected:
+                        logger.warning(
+                            f"[ENLACE PERDIDO] Se perdió comunicacion con el PLC Siemens {self.config.plc_ip}. "
+                            f"El Gateway LXC sigue vivo. Emitiendo DDEATH para '{self.device_id}'..."
+                        )
+                        self.plc_connected = False
+                        self.mqtt_publisher.ddeath(self.device_id)
+
+                    logger.info(f"Intentando conectar con PLC Siemens {self.config.plc_ip}...")
                     if not self.plc_client.connect(lambda: self.running):
-                        continue # Si retorna False, puede ser que se dio señal de apagado
-                
-                # Lectura multi-variable optimizada (un solo viaje de red)
+                        # Si no pudo conectar o se solicitó apagado durante el reintento
+                        continue
+
+                    # Conexión establecida exitosamente (o cable reconectado)
+                    logger.info(f"Conectado exitosamente con PLC Siemens {self.config.plc_ip}.")
+                    self.plc_connected = True
+
+                    # Realizar lectura inicial para catálogo completo
+                    initial_readings = self.plc_client.read_all_vars()
+
+                    # Emitir DBIRTH: El PLC se presenta al sistema con su catálogo de 16 variables
+                    self.mqtt_publisher.dbirth(self.device_id, initial_readings)
+
+                # ── OPERACIÓN NORMAL: LECTURA Y PUBLICACIÓN DDATA ──
                 readings = self.plc_client.read_all_vars()
-                
-                updates_by_equipo = {}
+
+                # Si no hubo lecturas pero decía estar conectado, verificar estado de conexión
+                if not readings and not self.plc_client.is_connected():
+                    continue
+
                 current_time = time.time()
                 ts_ms = int(current_time * 1000)
-                
+                metrics_to_publish = []
+
                 for info, valor in readings:
                     equipo = info['equipo']
                     var_name = info['var_name']
                     dtype = info['type']
                     last_val = info['last_value']
-                    
+                    metric_key = f"{equipo}/{var_name}"
+
                     should_publish = False
-                    
+
                     if dtype == 'BOOL':
-                        # Detección de cambio de estado
+                        # Detección de cambio de estado digital
                         if last_val is None or last_val != valor:
                             should_publish = True
-                    else: # REAL, WORD, INT, BYTE
-                        # Detección por Banda Muerta (Deadband)
+                    else:
+                        # Detección por Banda Muerta (Deadband / RBE)
                         if last_val is None or abs(last_val - valor) >= info['deadband']:
                             should_publish = True
-                            
-                    # Evaluar si pasó el tiempo máximo de update (Sanity Check Period)
+
+                    # Evaluación por tiempo máximo de refresco (Sanity Check Period)
                     if not should_publish and (current_time - info['last_publish']) >= info['freq']:
                         should_publish = True
-                    
-                    # ── Evaluar eventos genéricos ──
+
+                    # ── Evaluar eventos virtuales por flanco ──
                     events = self.event_detector.evaluate(equipo, var_name, valor)
                     for ev in events:
                         logger.info(ev.message)
                         ev_metric = psp.Metric(
                             timestamp=ts_ms,
-                            name=ev.tag_name,
+                            name=f"{ev.tag_equipo}/{ev.tag_name}",
                             datatype=psp.DataType.INT32,
-                            value=int(ev.value)
+                            value=ev.value
                         )
-                        if ev.tag_equipo not in updates_by_equipo:
-                            updates_by_equipo[ev.tag_equipo] = []
-                        updates_by_equipo[ev.tag_equipo].append(ev_metric)
-                    
-                    if not should_publish:
-                        continue
-                        
-                    # Actualizar memoria interna (estado y tiempo)
-                    info['last_value'] = valor
-                    info['last_publish'] = current_time
-                    
-                    # Mapear tipos y valores a Sparkplug B
-                    if dtype in ('BOOL', 'INT', 'WORD', 'BYTE', 'DWORD', 'DINT'):
-                        psp_dtype = psp.DataType.INT32
-                        casted_val = int(valor)
-                    else:
-                        psp_dtype = psp.DataType.FLOAT
-                        casted_val = float(valor)
-                    
-                    metric = psp.Metric(
-                        timestamp=ts_ms,
-                        name=var_name,
-                        datatype=psp_dtype,
-                        value=casted_val
-                    )
-                    
-                    if equipo not in updates_by_equipo:
-                        updates_by_equipo[equipo] = []
-                    updates_by_equipo[equipo].append(metric)
-                
-                # Encolar las actualizaciones por dispositivo en el publicador asíncrono
-                for equipo, metrics in updates_by_equipo.items():
-                    self.mqtt_publisher.enqueue_device_update(equipo, metrics)
-                
-                # Tick rápido (0.1s) en lugar del viejo intervalo, para reaccionar rápido a las frecuencias
-                time.sleep(0.1)
-                consecutive_errors = 0  # Restablecemos errores al tener un ciclo exitoso
-                
-            except Exception as e:
-                consecutive_errors += 1
-                logger.error(f"Error en bucle (Intento {consecutive_errors}/{max_errors}): {e}")
-                if consecutive_errors >= max_errors:
-                    logger.critical("Limite de errores. Abortando...")
-                    raise RuntimeError("Abordaje de ejecución tras fallos persistentes.")
-                time.sleep(self.config.retry_delay)
+                        metrics_to_publish.append(ev_metric)
 
+                    if should_publish:
+                        info['last_value'] = valor
+                        info['last_publish'] = current_time
+
+                        if dtype == "REAL":
+                            psp_dt = psp.DataType.FLOAT
+                            val_to_send = float(valor)
+                        elif dtype == "BOOL":
+                            psp_dt = psp.DataType.BOOLEAN
+                            val_to_send = bool(valor)
+                        else:
+                            psp_dt = psp.DataType.INT32
+                            val_to_send = int(valor)
+
+                        m = psp.Metric(
+                            timestamp=ts_ms,
+                            name=metric_key,
+                            datatype=psp_dt,
+                            value=val_to_send
+                        )
+                        metrics_to_publish.append(m)
+
+                # Si hay cambios detectados, emitir DDATA
+                if metrics_to_publish:
+                    self.mqtt_publisher.ddata(self.device_id, metrics_to_publish)
+
+                # Intervalo de lectura configurado (ej: 1.0s o sensor_read_interval)
+                time.sleep(self.config.sensor_read_interval)
+
+            except Exception as e:
+                logger.error(f"Error en bucle de gateway: {e}")
+                time.sleep(2.0)
+
+        # Fin del bucle
         self._cleanup()
 
-    def stop(self):
-        """Establece la señal de apagado del bucle principal."""
-        self.running = False
-
     def _cleanup(self):
-        """Libera de manera segura los recursos de red y comunicaciones."""
-        logger.info("Cerrando recursos...")
+        """Cierra ordenadamente los enlaces del PLC y del publicador MQTT."""
+        logger.info("Realizando limpieza de recursos...")
+        if self.plc_connected:
+            try:
+                # Avisar desconexión del dispositivo PLC
+                self.mqtt_publisher.ddeath(self.device_id)
+            except Exception:
+                pass
+            self.plc_connected = False
+
+        if self.plc_client.is_connected():
+            self.plc_client.disconnect()
+
         self.mqtt_publisher.stop()
-        self.plc_client.disconnect()
-        logger.info("Script detenido.")
+        logger.info("Gateway detenido exitosamente.")
+
+    def stop(self):
+        """Detiene el bucle de ejecución."""
+        self.running = False

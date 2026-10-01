@@ -1,60 +1,72 @@
 {
-  "FIT_001": {
-    "Flow": [
+  "PIT_001": {
+    "Pressure": [
+      192,
+      424,
+      0,
+      "REAL",
+      5.0,
+      0.1,
+      {
+        "description": "Presión de aire Instrumentación",
+        "unit": "bar"
+      }
+    ]
+  },
+  "FIT_001_MAS": {
+    "Mass_Flow": [
+      63,
+      424,
+      0,
+      "REAL",
+      5.0,
+      0.1,
+      {
+        "description": "Flujo Másico",
+        "unit": "kg/h"
+      }
+    ]
+  },
+  "FIT_001_DENS": {
+    "Density": [
       65,
       424,
       0,
       "REAL",
       5.0,
-      0.1
+      0.1,
+      {
+        "description": "Densidad del Fluido",
+        "unit": "g/cm³"
+      }
     ]
   },
-  "FIT_001_DIAG": {
-    "Raw": [
-      "I",
-      524,
-      0,
-      "WORD",
-      5.0,
-      1.0
-    ]
-  },
-  "FIT_002": {
-    "Raw": [
-      "I",
-      570,
-      0,
-      "WORD",
-      5.0,
-      0.1
-    ]
-  },
-  "FIT_003": {
-    "Flow": [
-      "M",
-      128,
+  "FIT_001_TEMP": {
+    "Temperature": [
+      73,
+      424,
       0,
       "REAL",
       5.0,
-      0.1
-    ],
-    "Raw": [
-      "I",
-      618,
-      0,
-      "WORD",
-      5.0,
-      0.1
+      0.1,
+      {
+        "description": "Temperatura del Fluido",
+        "unit": "°C"
+      }
     ]
   },
-  "FIT01": {
-    "Raw": [
-      "I",
-      564,
+  "FIT_001_VOL": {
+    "Volumetric_Flow": [
+      66,
+      424,
       0,
-      "WORD",
+      "REAL",
       5.0,
-      0.1
+      0.1,
+      {
+        "description": "Fluido Volumétrico",
+        "unit": "m³/h"
+      }
     ]
   },
   "LIT_001": {
@@ -64,7 +76,11 @@
       0,
       "REAL",
       5.0,
-      0.1
+      0.1,
+      {
+        "description": "Nivel en tanque 01",
+        "unit": "%"
+      }
     ]
   },
   "LIT_002": {
@@ -74,7 +90,11 @@
       0,
       "REAL",
       5.0,
-      0.1
+      0.1,
+      {
+        "description": "Nivel en tanque 02",
+        "unit": "%"
+      }
     ]
   },
   "TT_001": {
@@ -83,199 +103,195 @@
       424,
       0,
       "REAL",
-      60.0,
-      1.0
+      5.0,
+      0.1,
+      {
+        "description": "Temperatura del Laboratorio",
+        "unit": "°C"
+      }
     ]
   },
-  "TT_001_DIAG": {
-    "Temp_ID": [
-      "I",
-      538,
-      0,
-      "REAL",
-      60.0,
-      1.0
-    ],
-    "Status": [
-      "I",
-      542,
-      0,
-      "BYTE",
-      60.0,
-      0.0
-    ],
-    "Broken_Wire": [
-      "I",
-      542,
-      7,
-      "BOOL",
-      10.0,
-      0.5
-    ]
-  },
-  "TT_002": {
-    "Temp": [
-      77,
-      424,
-      0,
-      "REAL",
-      60.0,
-      1.0
-    ]
-  },
-  "TT_002_DIAG": {
-    "Raw": [
-      "I",
-      528,
-      0,
-      "WORD",
-      60.0,
-      1.0
-    ]
-  },
-  "TT001": {
-    "Raw": [
-      "I",
-      568,
-      0,
-      "WORD",
-      5.0,
-      0.1
-    ]
-  },
-  "TT01": {
-    "Value": [
-      "I",
-      578,
-      0,
-      "INT",
-      5.0,
-      0.1
-    ]
-  },
-  "PIT_001": {
-    "Pressure": [
-      192,
-      424,
-      0,
-      "REAL",
-      5.0,
-      0.1
-    ],
-    "Pressure_Raw": [
-      "I",
-      576,
-      0,
-      "WORD",
-      5.0,
-      0.1
-    ]
-  },
-  "frecuencia": {
-    "Value": [
-      "I",
-      660,
-      0,
-      "WORD",
-      5.0,
-      0.1
-    ]
-  },
-  "BOMBA_001": {
-    "FB_BOMBA_001": [
-      "I",
-      530,
-      0,
-      "WORD",
-      5.0,
-      0.1
-    ],
-    "FB_PB_001": [
-      "I",
-      0,
-      4,
-      "BOOL",
-      5.0,
-      0.1
-    ],
-    "KM_BOMBA_001": [
-      "Q",
-      525,
-      0,
-      "WORD",
-      5.0,
-      0.1
-    ],
-    "KM_BOMBA_001_ALT": [
-      "Q",
-      529,
-      0,
-      "WORD",
-      5.0,
-      0.1
-    ],
-    "PB_001": [
-      "Q",
-      2,
-      0,
-      "BOOL",
-      5.0,
-      0.1
-    ]
-  },
-  "MOT_001": {
-    "FB_MOT_001": [
-      "I",
-      0,
-      2,
-      "BOOL",
-      5.0,
-      0.1
-    ],
-    "Q_MOT_001": [
-      "Q",
-      1,
-      2,
-      "BOOL",
-      5.0,
-      0.1
-    ],
-    "VEL_MOT_001": [
-      "Q",
-      516,
-      0,
-      "WORD",
-      5.0,
-      0.1
-    ],
-    "VELMOT001": [
-      "I",
-      580,
-      0,
-      "INT",
-      5.0,
-      0.1
-    ]
-  },
-  "MOT_COM_001": {
-    "FB_COM_001": [
-      "I",
-      0,
-      3,
-      "BOOL",
-      5.0,
-      0.1
-    ]
-  },
-  "MOTOR_01": {
-    "Running": [
-      97,
-      446,
+  "Bomba_Agua_001_STATUS": {
+    "State": [
+      198,
+      44,
       0,
       "BOOL",
       5.0,
       0.1,
       {
+        "description": "Giro del motor",
+        "unit": "Estado",
+        "events": [
+          {
+            "name": "Bomba_Encendida",
+            "type": "rising_edge",
+            "tag_name": "Bomba_Agua_001_ON"
+          },
+          {
+            "name": "Bomba_Apagada",
+            "type": "falling_edge",
+            "tag_name": "Bomba_Agua_001_OFF"
+          }
+        ]
+      }
+    ]
+  },
+  "Bomba_Agua_001_REF": {
+    "Speed_Ref": [
+      200,
+      68,
+      0,
+      "REAL",
+      5.0,
+      0.1,
+      {
+        "description": "Velocidad del motor",
+        "unit": "%"
+      }
+    ]
+  },
+  "Val_001": {
+    "State": [
+      165,
+      44,
+      0,
+      "BOOL",
+      5.0,
+      0.1,
+      {
+        "description": "Estado de Válvula 1",
+        "unit": "Estado",
+        "events": [
+          {
+            "name": "Val_001_Abierta",
+            "type": "rising_edge",
+            "tag_name": "Val_001_OPEN"
+          },
+          {
+            "name": "Val_001_Cerrada",
+            "type": "falling_edge",
+            "tag_name": "Val_001_CLOSE"
+          }
+        ]
+      }
+    ]
+  },
+  "Val_002": {
+    "State": [
+      172,
+      44,
+      0,
+      "BOOL",
+      5.0,
+      0.1,
+      {
+        "description": "Estado de Válvula 2",
+        "unit": "Estado",
+        "events": [
+          {
+            "name": "Val_002_Abierta",
+            "type": "rising_edge",
+            "tag_name": "Val_002_OPEN"
+          },
+          {
+            "name": "Val_002_Cerrada",
+            "type": "falling_edge",
+            "tag_name": "Val_002_CLOSE"
+          }
+        ]
+      }
+    ]
+  },
+  "Val_003": {
+    "State": [
+      179,
+      44,
+      0,
+      "BOOL",
+      5.0,
+      0.1,
+      {
+        "description": "Estado de Válvula 3",
+        "unit": "Estado",
+        "events": [
+          {
+            "name": "Val_003_Abierta",
+            "type": "rising_edge",
+            "tag_name": "Val_003_OPEN"
+          },
+          {
+            "name": "Val_003_Cerrada",
+            "type": "falling_edge",
+            "tag_name": "Val_003_CLOSE"
+          }
+        ]
+      }
+    ]
+  },
+  "Val_004": {
+    "State": [
+      158,
+      44,
+      0,
+      "BOOL",
+      5.0,
+      0.1,
+      {
+        "description": "Estado de Válvula 4",
+        "unit": "Estado",
+        "events": [
+          {
+            "name": "Val_004_Abierta",
+            "type": "rising_edge",
+            "tag_name": "Val_004_OPEN"
+          },
+          {
+            "name": "Val_004_Cerrada",
+            "type": "falling_edge",
+            "tag_name": "Val_004_CLOSE"
+          }
+        ]
+      }
+    ]
+  },
+  "Mot_Comp_001": {
+    "State": [
+      186,
+      44,
+      0,
+      "BOOL",
+      5.0,
+      0.1,
+      {
+        "description": "Estado del compresor",
+        "unit": "Estado",
+        "events": [
+          {
+            "name": "Compresor_Encendido",
+            "type": "rising_edge",
+            "tag_name": "Mot_Comp_001_ON"
+          },
+          {
+            "name": "Compresor_Apagado",
+            "type": "falling_edge",
+            "tag_name": "Mot_Comp_001_OFF"
+          }
+        ]
+      }
+    ]
+  },
+  "MOTOR_01": {
+    "Running": [
+      106,
+      44,
+      0,
+      "BOOL",
+      5.0,
+      0.1,
+      {
+        "description": "Estado del motor de laboratorio",
+        "unit": "Estado",
         "events": [
           {
             "name": "Motor_Encendido",
@@ -289,46 +305,6 @@
           }
         ]
       }
-    ]
-  },
-  "Val_001": {
-    "State": [
-      "Q",
-      1,
-      3,
-      "BOOL",
-      5.0,
-      0.1
-    ]
-  },
-  "Val_002": {
-    "State": [
-      "Q",
-      1,
-      4,
-      "BOOL",
-      5.0,
-      0.1
-    ]
-  },
-  "Val_003": {
-    "State": [
-      "Q",
-      1,
-      5,
-      "BOOL",
-      5.0,
-      0.1
-    ]
-  },
-  "Val_004": {
-    "State": [
-      "Q",
-      1,
-      6,
-      "BOOL",
-      5.0,
-      0.1
     ]
   }
 }

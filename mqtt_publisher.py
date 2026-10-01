@@ -1,169 +1,312 @@
 import time
+import socket
 import logging
-import queue
-import threading
+from typing import Optional, List, Dict, Any
 import pysparkplug as psp
+from config import AppConfig
 from event_detector import EventDetector
 
 logger = logging.getLogger("PLC-MQTT.MQTTPublisher")
 
+
 class MQTTPublisher:
-    """Clase OOP que gestiona la conexión asíncrona a MQTT y la cola de mensajería (Worker) usando Sparkplug B."""
+    """
+    Gestor de comunicación MQTT y ciclo de vida Sparkplug B (Node y Devices) en LXC.
     
-    def __init__(self, config):
+    Implementa los 5 mensajes estándar de la convención Sparkplug B:
+    - NBIRTH: Anuncio de vida del nodo (Gateway LXC) con IP y catálogo general.
+    - NDEATH: Anuncio de muerte de nodo (LWT para caída de LXC / apagado).
+    - DBIRTH: Catálogo completo de las 16 variables del PLC con tipos y unidades.
+    - DDEATH: Alerta de pérdida de comunicación con el PLC Siemens (LXC vivo).
+    - DDATA : Telemetría periódica o por cambio de valor (RBE / Banda Muerta).
+    """
+
+    def __init__(self, config: AppConfig):
         self.config = config
-        self.metrics_queue = queue.Queue(maxsize=config.queue_maxsize)
+        self.bd_seq = 0
+        self.seq = 0
+        self.connected = False
         self.running = False
-        self.client = None
-        self.edge_node = None
-        self.worker_thread = None
         self.event_detector = EventDetector(config.MARCAS)
         
-        self._initialize_sparkplug_entities()
-
-    def _initialize_sparkplug_entities(self):
-        """Inicializa dinámicamente el cliente Sparkplug B, el Edge Node y los Dispositivos."""
-        logger.info("Inicializando Sparkplug B...")
-        
-        # 1. Crear cliente MQTT subyacente
+        # Cliente MQTT Sparkplug B subyacente
         self.client = psp.Client(
             client_id=f"{self.config.sparkplug_node_id}_client",
             username=self.config.mqtt_user,
             password=self.config.mqtt_password
         )
-        
-        # 2. Instanciar el Edge Node principal
-        self.edge_node = psp.EdgeNode(
+
+    def _next_seq(self) -> int:
+        """Incrementa de forma cíclica el número de secuencia (0-255) según Sparkplug B."""
+        self.seq = (self.seq + 1) % 256
+        return self.seq
+
+    def get_local_ip(self) -> str:
+        """Obtiene la dirección IP de la interfaz local que enruta hacia el broker EMQX."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect((self.config.mqtt_broker, self.config.mqtt_port))
+                return s.getsockname()[0]
+        except Exception:
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except Exception:
+                return "127.0.0.1"
+
+    # ──────────────────────────────────────────────────────────────────────────
+    #  1. GESTIÓN DE NODO (NBIRTH / NDEATH)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def ndeath(self, as_will: bool = False):
+        """
+        NDEATH (Node Death - Muerte de Nodo):
+        - as_will=True: Configura el LWT en Broker EMQX para cortes de luz / caídas del LXC.
+        - as_will=False: Publica NDEATH explícito en apagado ordenado del servicio.
+        """
+        topic = psp.Topic(
+            message_type=psp.MessageType.NDEATH,
+            group_id=self.config.sparkplug_group_id,
+            edge_node_id=self.config.sparkplug_node_id
+        )
+        ts = psp.get_current_timestamp()
+        bd_metric = psp.Metric(
+            timestamp=ts,
+            name="bdSeq",
+            datatype=psp.DataType.INT64,
+            value=self.bd_seq
+        )
+        payload = psp.NDeath(timestamp=ts, bd_seq_metric=bd_metric)
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_LEAST_ONCE, retain=False)
+
+        if as_will:
+            self.client.set_will(msg)
+            logger.info(
+                f"[NDEATH LWT] Testamento configurado en Broker EMQX para topic '{topic}' "
+                f"(bdSeq={self.bd_seq}). Activo ante corte de energía o caída del LXC."
+            )
+        else:
+            if self.connected:
+                self.client.publish(msg)
+                logger.info(f"[NDEATH] Publicado aviso de muerte de nodo en '{topic}'. Nodo desconectado.")
+
+    def nbirth(self):
+        """
+        NBIRTH (Node Birth - Nacimiento de Nodo):
+        El gateway arranca y anuncia: 'Estoy vivo, tengo IP tal y reportaré los siguientes equipos'.
+        """
+        self.seq = 0  # NBIRTH siempre inicia la secuencia en 0
+        topic = psp.Topic(
+            message_type=psp.MessageType.NBIRTH,
+            group_id=self.config.sparkplug_group_id,
+            edge_node_id=self.config.sparkplug_node_id
+        )
+        ts = psp.get_current_timestamp()
+        ip_addr = self.get_local_ip()
+        hostname = socket.gethostname()
+        equipos = list(self.config.MARCAS.keys())
+        equipos_str = ", ".join(equipos)
+
+        metrics = (
+            psp.Metric(timestamp=ts, name="bdSeq", datatype=psp.DataType.INT64, value=self.bd_seq),
+            psp.Metric(timestamp=ts, name="Node Control/Online", datatype=psp.DataType.BOOLEAN, value=True),
+            psp.Metric(timestamp=ts, name="Properties/IP", datatype=psp.DataType.STRING, value=ip_addr),
+            psp.Metric(timestamp=ts, name="Properties/Hostname", datatype=psp.DataType.STRING, value=hostname),
+            psp.Metric(timestamp=ts, name="Properties/Reported_Devices", datatype=psp.DataType.STRING, value=equipos_str),
+            psp.Metric(timestamp=ts, name="Properties/Device_Count", datatype=psp.DataType.INT32, value=len(equipos)),
+        )
+
+        payload = psp.NBirth(timestamp=ts, seq=0, metrics=metrics)
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=False)
+        self.client.publish(msg, include_dtypes=True)
+
+        logger.info(f"[NBIRTH] Nacimiento de Nodo publicado en '{topic}'")
+        logger.info(f"   -> Estado    : ONLINE ('Estoy vivo')")
+        logger.info(f"   -> IP LXC    : {ip_addr}")
+        logger.info(f"   -> Hostname  : {hostname}")
+        logger.info(f"   -> Equipos ({len(equipos)}) : {equipos_str}")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    #  2. GESTIÓN DE DISPOSITIVOS (DBIRTH / DDEATH / DDATA)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def dbirth(self, device_id: Optional[str] = None, initial_readings: Optional[list] = None):
+        """
+        DBIRTH (Device Birth - Nacimiento de Dispositivo):
+        Se publica cuando el gateway logra comunicarse con el PLC Siemens.
+        El PLC se presenta al sistema: 'Aquí está mi catálogo completo de 16 variables
+        con sus nombres, unidades y tipos de datos'.
+        """
+        dev_id = device_id or self.config.sparkplug_device_id
+        seq = self._next_seq()
+        ts = psp.get_current_timestamp()
+
+        # Diccionario para mapear lecturas iniciales si se proveen
+        readings_map = {}
+        if initial_readings:
+            for info, val in initial_readings:
+                key = f"{info['equipo']}/{info['var_name']}"
+                readings_map[key] = val
+
+        metrics_list = []
+
+        # Construir catálogo de las 16 variables configuradas en tags_plc.json
+        for equipo, variables in self.config.MARCAS.items():
+            for var_name, config_list in variables.items():
+                meta = config_list[6] if len(config_list) > 6 and isinstance(config_list[6], dict) else {}
+                desc = meta.get("description", equipo)
+                unit = meta.get("unit", "")
+                desc_full = f"{desc} [{unit}]" if unit else desc
+
+                dtype_str = str(config_list[3]).upper()
+                metric_key = f"{equipo}/{var_name}"
+                current_val = readings_map.get(metric_key, None)
+
+                if dtype_str == "REAL":
+                    psp_dtype = psp.DataType.FLOAT
+                    val = float(current_val) if current_val is not None else 0.0
+                elif dtype_str == "BOOL":
+                    psp_dtype = psp.DataType.BOOLEAN
+                    val = bool(current_val) if current_val is not None else False
+                else:
+                    psp_dtype = psp.DataType.INT32
+                    val = int(current_val) if current_val is not None else 0
+
+                m = psp.Metric(
+                    timestamp=ts,
+                    name=metric_key,
+                    datatype=psp_dtype,
+                    value=val,
+                    metadata=psp.Metadata(description=desc_full)
+                )
+                metrics_list.append(m)
+
+        # Añadir métricas virtuales de eventos por flanco (ej. MOTOR_01_ON, MOTOR_01_OFF)
+        for ev_tag in self.event_detector.get_event_tags():
+            ev_metric = psp.Metric(
+                timestamp=ts,
+                name=f"{ev_tag['tag_equipo']}/{ev_tag['tag_name']}",
+                datatype=psp.DataType.INT32,
+                value=0,
+                metadata=psp.Metadata(description=f"Evento Virtual: {ev_tag['tag_name']}")
+            )
+            metrics_list.append(ev_metric)
+
+        topic = psp.Topic(
+            message_type=psp.MessageType.DBIRTH,
             group_id=self.config.sparkplug_group_id,
             edge_node_id=self.config.sparkplug_node_id,
-            metrics=[],  # Sin métricas directamente en el nodo
-            client=self.client
+            device_id=dev_id
         )
-        
-        # 3. Registrar dispositivos dinámicamente basados en config.MARCAS
-        for equipo, variables in self.config.MARCAS.items():
-            device_metrics = []
-            for var_name, config_list in variables.items():
-                dtype = config_list[3]
-                # Asignar tipos e inicializar valores de nacimiento (DBIRTH)
-                if dtype in ('BOOL', 'WORD', 'INT', 'BYTE', 'DWORD', 'DINT'):
-                    psp_dtype = psp.DataType.INT32
-                    default_val = 0
-                else:
-                    psp_dtype = psp.DataType.FLOAT
-                    default_val = 0.0
-                
-                metric = psp.Metric(
-                    timestamp=int(time.time() * 1000),
-                    name=var_name,
-                    datatype=psp_dtype,
-                    value=default_val
-                )
-                device_metrics.append(metric)
-            
-            # Crear métricas de evento virtuales vinculadas a este equipo
-            for ev_tag in self.event_detector.get_event_tags():
-                if ev_tag["tag_equipo"] == equipo:
-                    ev_metric = psp.Metric(
-                        timestamp=int(time.time() * 1000),
-                        name=ev_tag["tag_name"],
-                        datatype=psp.DataType.INT32,
-                        value=0
-                    )
-                    device_metrics.append(ev_metric)
-            
-            # Crear y registrar el Device
-            device = psp.Device(device_id=equipo, metrics=device_metrics)
-            self.edge_node.register(device)
-            logger.info(f"Registrado: {equipo}")
 
-    def start(self):
-        """Inicia el worker y gestiona la conexión asíncrona."""
+        payload = psp.DBirth(timestamp=ts, seq=seq, metrics=tuple(metrics_list))
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=False)
+        self.client.publish(msg, include_dtypes=True)
+
+        logger.info(f"[DBIRTH] Nacimiento de Dispositivo '{dev_id}' publicado en '{topic}' (seq={seq}).")
+        logger.info(f"   -> Presentando catalogo de {len(metrics_list)} variables con nombres, tipos y unidades.")
+
+    def ddeath(self, device_id: Optional[str] = None):
+        """
+        DDEATH (Device Death - Muerte de Dispositivo):
+        Si el cable Ethernet del PLC se desconecta, pero el Gateway LXC sigue vivo.
+        El gateway avisa: 'Sigo online, pero perdí comunicación con el PLC Siemens'.
+        """
+        dev_id = device_id or self.config.sparkplug_device_id
+        seq = self._next_seq()
+        ts = psp.get_current_timestamp()
+
+        topic = psp.Topic(
+            message_type=psp.MessageType.DDEATH,
+            group_id=self.config.sparkplug_group_id,
+            edge_node_id=self.config.sparkplug_node_id,
+            device_id=dev_id
+        )
+
+        payload = psp.DDeath(timestamp=ts, seq=seq)
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=False)
+        self.client.publish(msg)
+
+        logger.warning(
+            f"[DDEATH] Muerte de Dispositivo publicada en '{topic}' (seq={seq}). "
+            f"El Gateway LXC sigue online, pero se perdió comunicación con '{dev_id}'."
+        )
+
+    def ddata(self, device_id: Optional[str] = None, metrics: Optional[List[psp.Metric]] = None):
+        """
+        DDATA (Device Data - Datos del Dispositivo):
+        En operación normal, cada segundo o cada vez que cambia un sensor.
+        'Aquí van las lecturas actuales de presión, flujo, estado de válvulas, etc.'.
+        """
+        if not metrics:
+            return
+
+        dev_id = device_id or self.config.sparkplug_device_id
+        seq = self._next_seq()
+        ts = psp.get_current_timestamp()
+
+        topic = psp.Topic(
+            message_type=psp.MessageType.DDATA,
+            group_id=self.config.sparkplug_group_id,
+            edge_node_id=self.config.sparkplug_node_id,
+            device_id=dev_id
+        )
+
+        payload = psp.DData(timestamp=ts, seq=seq, metrics=tuple(metrics))
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=False)
+        self.client.publish(msg, include_dtypes=True)
+
+        logger.debug(f"[DDATA] Telemetria de '{dev_id}' enviada ({len(metrics)} metricas, seq={seq}).")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    #  3. CONTROL DE CONEXIÓN
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def start(self, on_connected_callback=None):
+        """
+        Inicia MQTTPublisher:
+        1. Configura testamento NDEATH (LWT).
+        2. Conecta asíncronamente con Broker EMQX.
+        3. En on_connect emite NBIRTH y ejecuta el callback proporcionado.
+        """
+        logger.info(f"Iniciando MQTTPublisher hacia Broker {self.config.mqtt_broker}:{self.config.mqtt_port}...")
         self.running = True
-        self.worker_thread = threading.Thread(target=self._mqtt_worker, daemon=True)
-        self.worker_thread.start()
 
-    def _mqtt_worker(self):
-        """Hilo consumidor: Se conecta al broker de forma asíncrona y despacha la cola de datos."""
-        logger.info(f"Iniciando Worker MQTT -> {self.config.mqtt_broker}:{self.config.mqtt_port}")
-        
-        # Intentar conectar con reintentos
-        while self.running:
-            try:
-                # Conectar el Edge Node de forma asíncrona (blocking=False)
-                # Esto inicia el loop del cliente paho-mqtt en segundo plano
-                self.edge_node.connect(self.config.mqtt_broker, port=self.config.mqtt_port, blocking=False)
-                break
-            except Exception as e:
-                logger.error(f"Error conexion MQTT: {e}")
-                time.sleep(self.config.retry_delay)
+        # 1. Configurar LWT (NDEATH)
+        self.ndeath(as_will=True)
 
-        # Esperar hasta que el Edge Node Sparkplug B esté completamente operativo
-        # (NBIRTH + DBIRTH publicados exitosamente, no solo conexión TCP)
-        logger.info("Esperando conexion MQTT...")
-        while self.running and not self.edge_node._connected:
-            time.sleep(0.1)
-            
-        if self.running:
-            logger.info("Conexion MQTT establecida.")
-            # Breve pausa para asegurar que los mensajes BIRTH sean procesados por el broker
-            time.sleep(0.5)
+        def on_connect_cb(_client):
+            self.connected = True
+            logger.info("Conexion establecida con Broker EMQX.")
+            # 2. Publicar NBIRTH del nodo
+            self.nbirth()
+            if on_connected_callback:
+                on_connected_callback()
 
-        # Bucle principal de despacho de datos
-        while self.running:
-            try:
-                # Si se pierde la conexión, pausar el despacho de la cola para no descartar/fallar
-                if not self.edge_node._connected:
-                    logger.warning("Conexion perdida con el Broker MQTT. Pausando despacho de telemetria...")
-                    while self.running and not self.edge_node._connected:
-                        time.sleep(0.5)
-                    if not self.running:
-                        break
-                    logger.info("Conexion restablecida con el Broker MQTT. Reanudando despacho.")
-
-                item = self.metrics_queue.get(timeout=1.0)
-                if item is None:
-                    break
-                
-                equipo, metrics = item
-                # update_device construye el payload DDATA y lo publica de forma segura
-                self.edge_node.update_device(equipo, metrics)
-                self.metrics_queue.task_done()
-            except queue.Empty:
-                continue
-            except Exception as e:
-                logger.error(f"Error en publicacion MQTT: {e}")
-
-        # Desconexión segura y limpia
-        logger.info("Deteniendo Worker MQTT...")
-        if self.edge_node:
-            try:
-                # publicará NDEATH y desconectará
-                self.edge_node.disconnect()
-                logger.info("Nodo Sparkplug desconectado.")
-            except Exception as e:
-                logger.error(f"Error al desconectar Edge Node: {e}")
-
-    def enqueue_device_update(self, equipo: str, metrics: list) -> bool:
-        """Encola la actualización de métricas de un dispositivo para transmisión asíncrona."""
-        if not self.running:
-            logger.warning("Publicador MQTT detenido. Descartando datos.")
-            return False
-            
         try:
-            self.metrics_queue.put_nowait((equipo, metrics))
-            return True
-        except queue.Full:
-            logger.warning("Cola MQTT llena. Descartando datos.")
-            return False
+            self.client.connect(
+                self.config.mqtt_broker,
+                port=self.config.mqtt_port,
+                keepalive=self.config.mqtt_keepalive,
+                blocking=False,
+                callback=on_connect_cb
+            )
+        except Exception as e:
+            logger.error(f"Error al conectar con Broker EMQX: {e}")
 
     def stop(self):
-        """Detiene el worker y libera los recursos de Sparkplug."""
+        """
+        Detiene la conexión:
+        1. Emite NDEATH limpio para el nodo.
+        2. Cierra la conexión MQTT.
+        """
+        logger.info("Deteniendo MQTTPublisher...")
         self.running = False
-        if self.worker_thread:
-            try:
-                self.metrics_queue.put_nowait(None)
-            except queue.Full:
-                pass
-            self.worker_thread.join(timeout=3.0)
-            logger.info("Worker MQTT finalizado.")
+        if self.connected:
+            self.ndeath(as_will=False)
+            self.connected = False
+
+        try:
+            self.client.disconnect()
+        except Exception as e:
+            logger.warning(f"Error desconectando MQTT: {e}")
+        logger.info("MQTTPublisher finalizado.")

@@ -15,5 +15,6 @@ MQTT_USER=""
 MQTT_PASSWORD=""
 
 # Configuración de Sparkplug B
-SPARKPLUG_GROUP_ID=""
-SPARKPLUG_NODE_ID=""
+SPARKPLUG_GROUP_ID="sat_lab"
+SPARKPLUG_NODE_ID="gw_extraccion_112"
+SPARKPLUG_DEVICE_ID="plc_siemens_lab"

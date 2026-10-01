@@ -28,13 +28,15 @@ class AppConfig:
         self.mqtt_port = int(os.getenv("MQTT_PORT", 1883))
         self.mqtt_user = os.getenv("MQTT_USER")
         self.mqtt_password = os.getenv("MQTT_PASSWORD")
+        self.mqtt_keepalive = int(os.getenv("MQTT_KEEPALIVE", 10))
         
         # Parámetros de Cola / Multihilo
         self.queue_maxsize = 5000
 
         # Parámetros Sparkplug B
-        self.sparkplug_group_id = os.getenv("SPARKPLUG_GROUP_ID", "GianCa04_IIoT")
-        self.sparkplug_node_id = os.getenv("SPARKPLUG_NODE_ID", "PLC_Gateway_01")
+        self.sparkplug_group_id = os.getenv("SPARKPLUG_GROUP_ID", "sat_lab")
+        self.sparkplug_node_id = os.getenv("SPARKPLUG_NODE_ID", "gw_extraccion_112")
+        self.sparkplug_device_id = os.getenv("SPARKPLUG_DEVICE_ID", "plc_siemens_lab")
         
         # Cargar variables del PLC desde JSON
         self.MARCAS = self._load_tags("tags_plc.json")

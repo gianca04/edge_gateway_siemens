@@ -3,6 +3,7 @@ import sys
 import time
 import logging
 import paho.mqtt.client as mqtt
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pysparkplug as psp
 from config import AppConfig
 
@@ -40,7 +41,7 @@ def on_message(client, userdata, msg):
         elif hasattr(payload_obj, 'bd_seq_metric'):
             metrics = [payload_obj.bd_seq_metric]
         else:
-            metrics = getattr(payload_obj, 'metrics', [])
+            metrics = []
         
         print("\n" + "="*70)
         print(f"[MENSAJE RECIBIDO] Topic: {topic_str}")
