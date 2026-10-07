@@ -74,7 +74,7 @@ class MQTTPublisher:
             value=self.bd_seq
         )
         payload = psp.NDeath(timestamp=ts, bd_seq_metric=bd_metric)
-        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_LEAST_ONCE, retain=False)
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_LEAST_ONCE, retain=True)
 
         if as_will:
             self.client.set_will(msg)
@@ -114,7 +114,7 @@ class MQTTPublisher:
         )
 
         payload = psp.NBirth(timestamp=ts, seq=0, metrics=metrics)
-        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=False)
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=True)
         self.client.publish(msg, include_dtypes=True)
 
         logger.info(f"[NBIRTH] Nacimiento de Nodo publicado en '{topic}'")
@@ -186,7 +186,7 @@ class MQTTPublisher:
         )
 
         payload = psp.DBirth(timestamp=ts, seq=seq, metrics=tuple(metrics_list))
-        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=False)
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=True)
         self.client.publish(msg, include_dtypes=True)
 
         logger.info(f"[DBIRTH] Nacimiento de Dispositivo '{dev_id}' publicado en '{topic}' (seq={seq}).")
@@ -210,7 +210,7 @@ class MQTTPublisher:
         )
 
         payload = psp.DDeath(timestamp=ts, seq=seq)
-        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=False)
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=True)
         self.client.publish(msg)
 
         logger.warning(
@@ -239,7 +239,7 @@ class MQTTPublisher:
         )
 
         payload = psp.DData(timestamp=ts, seq=seq, metrics=tuple(metrics))
-        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=False)
+        msg = psp.Message(topic=topic, payload=payload, qos=psp.QoS.AT_MOST_ONCE, retain=True)
         self.client.publish(msg, include_dtypes=True)
 
         logger.debug(f"[DDATA] Telemetria de '{dev_id}' enviada ({len(metrics)} metricas, seq={seq}).")
