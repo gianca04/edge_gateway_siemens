@@ -244,6 +244,31 @@ class MQTTPublisher:
 
         logger.debug(f"[DDATA] Telemetria de '{dev_id}' enviada ({len(metrics)} metricas, seq={seq}).")
 
+    def publish_live(self, device_id: str, metrics: list):
+        """
+        Publica el payload en formato Sparkplug B Protobuf exacto, pero
+        enviado a un topic personalizado de live stream para consumir en la rule.
+        """
+        if not self.connected or not metrics:
+            return
+
+        dev_id = device_id or self.config.sparkplug_device_id
+        # IMPORTANTE: NO usamos self._next_seq() aquí para no romper 
+        # el contador oficial del hilo de Sparkplug B.
+        ts = psp.get_current_timestamp()
+
+        # Generar payload Protobuf idéntico a DDATA pero con seq=0 fijo (o irrelevante para live)
+        payload_obj = psp.DData(timestamp=ts, seq=0, metrics=tuple(metrics))
+        payload_bytes = payload_obj.encode(include_dtypes=True)
+
+        topic = f"live/{self.config.sparkplug_group_id}/DDATA/{self.config.sparkplug_node_id}/{dev_id}"
+        
+        try:
+            self.client._client.publish(topic, payload_bytes, qos=0)
+            # logger.debug(f"[LIVE] Stream publicado en '{topic}'")
+        except Exception as e:
+            logger.error(f"[LIVE] Error publicando stream: {e}")
+
     # ──────────────────────────────────────────────────────────────────────────
     #  3. CONTROL DE CONEXIÓN
     # ──────────────────────────────────────────────────────────────────────────

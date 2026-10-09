@@ -1,6 +1,7 @@
 import time
 import logging
 import signal
+import threading
 import pysparkplug as psp
 from config import AppConfig
 from plc_client import PLCClient
@@ -30,6 +31,10 @@ class IIoTGateway:
         self.plc_connected = False
         self.device_id = config.sparkplug_device_id
 
+        # Hilo secundario para streaming en vivo
+        self.live_thread = None
+        self.plc_lock = threading.Lock()
+
         # Capturar señales POSIX (esencial para LXC y daemon systemd)
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -47,8 +52,66 @@ class IIoTGateway:
         # 1. Arrancar publicador MQTT (registra NDEATH LWT, conecta a EMQX y emite NBIRTH)
         self.mqtt_publisher.start()
 
-        # 2. Iniciar bucle principal de adquisición y telemetría de dispositivos
+        # 2. Iniciar hilo secundario de Live Stream (1 seg de barrido)
+        self.live_thread = threading.Thread(target=self._live_stream_loop, daemon=True)
+        self.live_thread.start()
+
+        # 3. Iniciar bucle principal de adquisición y telemetría de dispositivos
         self._run_loop()
+
+    def _live_stream_loop(self):
+        """Bucle secundario que lee y publica todas las variables cada segundo sin respetar deadband."""
+        logger.info("Iniciando hilo secundario de Live Stream (1s)...")
+        while self.running:
+            try:
+                if self.plc_connected and self.plc_client.is_connected():
+                    # Leer variables del PLC usando el Lock para evitar colisiones con _run_loop
+                    with self.plc_lock:
+                        readings = self.plc_client.read_all_vars()
+
+                    if readings:
+                        current_time = time.time()
+                        ts_ms = int(current_time * 1000)
+                        metrics_to_publish = []
+                        
+                        for info, valor in readings:
+                            metric_key = f"{info['equipo']}/{info['var_name']}"
+                            dtype = info['type']
+                            
+                            if dtype == "REAL":
+                                psp_dt = psp.DataType.FLOAT
+                                val_to_send = float(valor)
+                            elif dtype == "BOOL":
+                                psp_dt = psp.DataType.BOOLEAN
+                                val_to_send = bool(valor)
+                            else:
+                                psp_dt = psp.DataType.INT32
+                                val_to_send = int(valor)
+
+                            m = psp.Metric(
+                                timestamp=ts_ms,
+                                name=metric_key,
+                                datatype=psp_dt,
+                                value=val_to_send
+                            )
+                            metrics_to_publish.append(m)
+                        
+                        # Publicar por MQTT en Protobuf exacto
+                        if metrics_to_publish:
+                            self.mqtt_publisher.publish_live(self.device_id, metrics_to_publish)
+            except Exception as e:
+                logger.error(f"Error en hilo de live stream: {e}")
+                # Forzar desconexión si es un error de socket/TCP de Snap7
+                with self.plc_lock:
+                    if self.plc_connected:
+                        self.plc_connected = False
+                        try:
+                            self.plc_client.disconnect()
+                        except:
+                            pass
+            
+            # Barrido cada 1 segundo independiente de self.config.sensor_read_interval
+            time.sleep(1.0)
 
     def _run_loop(self):
         """Bucle continuo de supervisión de conexión con el PLC y despacho de DBIRTH, DDEATH y DDATA."""
@@ -74,16 +137,19 @@ class IIoTGateway:
 
                     # Conexión establecida exitosamente (o cable reconectado)
                     logger.info(f"Conectado exitosamente con PLC Siemens {self.config.plc_ip}.")
-                    self.plc_connected = True
+                    
+                    # Realizar lectura inicial para catálogo completo (Protegido por Lock)
+                    with self.plc_lock:
+                        initial_readings = self.plc_client.read_all_vars()
 
-                    # Realizar lectura inicial para catálogo completo
-                    initial_readings = self.plc_client.read_all_vars()
+                    self.plc_connected = True
 
                     # Emitir DBIRTH: El PLC se presenta al sistema con su catálogo de 16 variables
                     self.mqtt_publisher.dbirth(self.device_id, initial_readings)
 
                 # ── OPERACIÓN NORMAL: LECTURA Y PUBLICACIÓN DDATA ──
-                readings = self.plc_client.read_all_vars()
+                with self.plc_lock:
+                    readings = self.plc_client.read_all_vars()
 
                 # Si no hubo lecturas pero decía estar conectado, verificar estado de conexión
                 if not readings and not self.plc_client.is_connected():
@@ -146,6 +212,14 @@ class IIoTGateway:
 
             except Exception as e:
                 logger.error(f"Error en bucle de gateway: {e}")
+                # Forzar desconexión para entrar en modo reconexión
+                with self.plc_lock:
+                    if self.plc_connected:
+                        self.plc_connected = False
+                        try:
+                            self.plc_client.disconnect()
+                        except:
+                            pass
                 time.sleep(2.0)
 
         # Fin del bucle
